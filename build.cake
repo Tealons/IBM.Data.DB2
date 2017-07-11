@@ -25,7 +25,7 @@ Task("CreateSubFolders")
 Task("Compile")
   .Does(() =>
 {
-      //RunTarget("AssemblyUpdate");
+      RunTarget("AssemblyUpdate");
       RunTarget("Compilex86");
       RunTarget("Compilex64");
       RunTarget("CompilexAnyCPU");
@@ -57,7 +57,7 @@ Information("File version: {0}", version);
 
 CreateAssemblyInfo(file, new AssemblyInfoSettings {
     Product = "IBM.Data.DB2",
-    Version = version,
+    Version = assemblyInfo.AssemblyVersion,
     FileVersion = version,    
     Copyright = "Copyright ©  2017"});
 });

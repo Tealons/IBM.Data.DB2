@@ -21,192 +21,208 @@
 //
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 
 namespace IBM.Data.DB2
 {
-	/// <summary>
-	/// 
-	/// </summary>
-	/// <remarks>One connection pool per connectionstring</remarks>
-	//internal sealed class DB2ConnectionPool
-	//{
-	//	private ArrayList	openFreeConnections; // list of pooled connections sorted by age. First connection is present at index 'connectionsUsableOffset'		
-	//	private int			connectionsOpen;	// total number of connections open (in pool, an in use by application)
-	//	private int			connectionsInUse;	// total connection in use by application
-	//	private int			connectionsUsableOffset; // Offset to the first pooled connection in 'openFreeConnections'
-	//	private Timer		timer;
-	//	public string		databaseProductName;
-	//	public string		databaseVersion;
-	//	public int			majorVersion;
-	//	public int			minorVersion;
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <remarks>One connection pool per connectionstring</remarks>
+    /// TOOD : zrobic
+    internal sealed class DB2ConnectionPool
+    {
+        private ArrayList openFreeConnections; // list of pooled connections sorted by age. First connection is present at index 'connectionsUsableOffset'		
+        private int connectionsOpen;    // total number of connections open (in pool, an in use by application)
+        private int connectionsInUse;   // total connection in use by application
+        private int connectionsUsableOffset; // Offset to the first pooled connection in 'openFreeConnections'
+        private Timer timer;
+        public string databaseProductName;
+        public string databaseVersion;
+        public int majorVersion;
+        public int minorVersion;
+        private Dictionary<string, string> settings;
 
-	//	private DB2ConnectionSettings connectionSettings;
+        private string connectionString;
 
-	//	public DB2ConnectionPool(DB2ConnectionSettings connectionSettings)
-	//	{
-	//		this.connectionSettings = connectionSettings;
-	//		openFreeConnections = new ArrayList();
-	//	}
+        public DB2ConnectionPool(string connectionString)
+        {
+            this.connectionString = connectionString;
+            this.openFreeConnections = new ArrayList();
+            this.settings = DB2ConnectionStringBuilder.Parse(this.connectionString);
+        }
 
-	//	public DB2ConnectionSettings ConnectionSettings
-	//	{
-	//		get { return connectionSettings; }
-	//	}
+        private int ConnectionPoolSizeMax
+        {
+            get {
+                if (settings.ContainsKey("ConnectionPoolSizeMax"))
+                    return int.Parse(settings["ConnectionPoolSizeMax"]);
+                return 0;
+            }
+        }
 
-	//	public DB2OpenConnection GetOpenConnection(DB2Connection db2Conn)
-	//	{
-	//		DB2OpenConnection connection = null;
-	//		lock(openFreeConnections.SyncRoot)
-	//		{
-	//			if((connectionSettings.ConnectionPoolSizeMax > 0) &&
-	//				(connectionsOpen >= connectionSettings.ConnectionPoolSizeMax))
-	//			{
-	//				throw new ArgumentException("Maximum connections reached for connectionstring");
-	//			}
+        private TimeSpan ConnectionLifeTime
+        {
+            get
+            {
+                if (settings.ContainsKey("ConnectionLifeTime"))
+                    return TimeSpan.Parse(settings["ConnectionLifeTime"]);
+                return TimeSpan.Zero;
+            }
+        }
 
-	//			while(connectionsOpen > connectionsInUse)
-	//			{
-	//				connection = (DB2OpenConnection)openFreeConnections[openFreeConnections.Count - 1];
-	//				openFreeConnections.RemoveAt(openFreeConnections.Count - 1);
+        public DB2OpenConnection GetOpenConnection(DB2Connection db2Conn)
+        {
+            DB2OpenConnection connection = null;
+            lock (openFreeConnections.SyncRoot)
+            {
+                if ((ConnectionPoolSizeMax > 0) && (connectionsOpen >= ConnectionPoolSizeMax))
+                {
+                    throw new ArgumentException("Maximum connections reached for connectionstring");
+                }
 
-	//				// check if connection is dead
-	//				int isDead;
- //                   DB2Constants.RetCode sqlRet = (DB2Constants.RetCode)DB2CLIWrapper.SQLGetConnectAttr(connection.DBHandle, DB2Constants.SQL_ATTR_CONNECTION_DEAD, out isDead, 0, IntPtr.Zero);
-	//				if(((sqlRet == DB2Constants.RetCode.SQL_SUCCESS_WITH_INFO) || (sqlRet == DB2Constants.RetCode.SQL_SUCCESS)) && (isDead == DB2Constants.SQL_CD_FALSE))
-	//				{
-	//					connectionsInUse++;
-	//					break;
-	//				}
-	//				else
-	//				{
-	//					connectionsOpen--;
-	//					connection.Dispose();
-	//					connection = null;
-	//				}
+                while (connectionsOpen > connectionsInUse)
+                {
+                    connection = (DB2OpenConnection)openFreeConnections[openFreeConnections.Count - 1];
+                    openFreeConnections.RemoveAt(openFreeConnections.Count - 1);
 
-	//			}
-	//			if(connectionsOpen == connectionsInUse)
-	//			{
-	//				if(timer != null)
-	//				{
-	//					timer.Dispose();
-	//					timer = null;
-	//				}
-	//			}
-	//		}
-	//		if(connection == null)
-	//		{
-	//			openFreeConnections.Clear();
-	//			connectionsUsableOffset = 0;
+                    // check if connection is dead
+                    int isDead;
+                    DB2Constants.RetCode sqlRet = (DB2Constants.RetCode)DB2CLIWrapper.SQLGetConnectAttr(connection.DBHandle, DB2Constants.SQL_ATTR_CONNECTION_DEAD, out isDead, 0, IntPtr.Zero);
+                    if (((sqlRet == DB2Constants.RetCode.SQL_SUCCESS_WITH_INFO) || (sqlRet == DB2Constants.RetCode.SQL_SUCCESS)) && (isDead == DB2Constants.SQL_CD_FALSE))
+                    {
+                        connectionsInUse++;
+                        break;
+                    }
+                    else
+                    {
+                        connectionsOpen--;
+                        connection.Dispose();
+                        connection = null;
+                    }
 
-	//			connection = new DB2OpenConnection(connectionSettings, db2Conn);
-	//			connectionsOpen++;
-	//			connectionsInUse++;
-	//		}
+                }
+                if (connectionsOpen == connectionsInUse)
+                {
+                    if (timer != null)
+                    {
+                        timer.Dispose();
+                        timer = null;
+                    }
+                }
+            }
+            if (connection == null)
+            {
+                openFreeConnections.Clear();
+                connectionsUsableOffset = 0;
 
-	//		return connection;
-	//	}
+                connection = new DB2OpenConnection(connectionString, db2Conn);
+                connectionsOpen++;
+                connectionsInUse++;
+            }
 
-	//	private void DisposeTimedoutConnections(object state)
-	//	{
-	//		lock(openFreeConnections.SyncRoot)
-	//		{
-	//			if(timer != null)
-	//			{
-	//				TimeSpan timeToDispose = TimeSpan.Zero;
-	//				DB2OpenConnection connection;
-	//				while(connectionsOpen > connectionsInUse)
-	//				{
-	//					connection = (DB2OpenConnection)openFreeConnections[connectionsUsableOffset];
-	//					timeToDispose = connection.poolDisposalTime.Subtract(DateTime.Now);
-	//					if((timeToDispose.Ticks < 0) ||								 // time to die
-	//						(timeToDispose > connectionSettings.ConnectionLifeTime)) // messing with system clock
-	//					{
-	//						connection.Dispose();
-	//						openFreeConnections[connectionsUsableOffset] = null;
-	//						connectionsOpen--;
-	//						connectionsUsableOffset++;
-	//					}
-	//					else
-	//					{
-	//						break;
-	//					}
-	//				}
-	//				if(connectionsOpen > connectionsInUse)
-	//				{
-	//					connection = (DB2OpenConnection)openFreeConnections[connectionsUsableOffset];
-	//					timer.Change(timeToDispose, new TimeSpan(-1));
-	//				}
-	//				else
-	//				{
-	//					timer.Dispose();
-	//					timer = null;
-	//				}
-	//			}
-	//			if((connectionsUsableOffset > (openFreeConnections.Capacity / 2)) &&
-	//				(connectionsOpen > connectionsInUse))
-	//			{
-	//				openFreeConnections.RemoveRange(0, connectionsUsableOffset); // cleanup once in a while
-	//				connectionsUsableOffset = 0;
-	//			}
-	//		}
-	//	}
+            return connection;
+        }
 
-	//	public void AddToFreeConnections(DB2OpenConnection connection)
-	//	{
-	//		lock(openFreeConnections.SyncRoot)
-	//		{
-	//			connection.poolDisposalTime = DateTime.Now.Add(connectionSettings.ConnectionLifeTime);
-	//			if(timer == null)
-	//			{
-	//				timer = new Timer(new TimerCallback(DisposeTimedoutConnections), null, 
-	//					connectionSettings.ConnectionLifeTime, new TimeSpan(-1));
-	//			}
-	//			connectionsInUse--;
-	//			openFreeConnections.Add(connection);
-	//		}
-	//	}
+        private void DisposeTimedoutConnections(object state)
+        {
+            lock (openFreeConnections.SyncRoot)
+            {
+                if (timer != null)
+                {
+                    TimeSpan timeToDispose = TimeSpan.Zero;
+                    DB2OpenConnection connection;
+                    while (connectionsOpen > connectionsInUse)
+                    {
+                        connection = (DB2OpenConnection)openFreeConnections[connectionsUsableOffset];
+                        timeToDispose = connection.PoolDisposalTime.Subtract(DateTime.Now);
+                        if ((timeToDispose.Ticks < 0) ||                                 // time to die
+                            (timeToDispose > ConnectionLifeTime)) // messing with system clock
+                        {
+                            connection.Dispose();
+                            openFreeConnections[connectionsUsableOffset] = null;
+                            connectionsOpen--;
+                            connectionsUsableOffset++;
+                        }
+                        else
+                        {
+                            break;
+                        }
+                    }
+                    if (connectionsOpen > connectionsInUse)
+                    {
+                        connection = (DB2OpenConnection)openFreeConnections[connectionsUsableOffset];
+                        timer.Change(timeToDispose, new TimeSpan(-1));
+                    }
+                    else
+                    {
+                        timer.Dispose();
+                        timer = null;
+                    }
+                }
+                if ((connectionsUsableOffset > (openFreeConnections.Capacity / 2)) &&
+                    (connectionsOpen > connectionsInUse))
+                {
+                    openFreeConnections.RemoveRange(0, connectionsUsableOffset); // cleanup once in a while
+                    connectionsUsableOffset = 0;
+                }
+            }
+        }
 
-	//	public void OpenConnectionFinalized()
-	//	{
-	//		lock(openFreeConnections.SyncRoot)
-	//		{
-	//			connectionsOpen--;
-	//			connectionsInUse--;
-	//		}
-	//	}
+        public void AddToFreeConnections(DB2OpenConnection connection)
+        {
+            lock (openFreeConnections.SyncRoot)
+            {
+                connection.PoolDisposalTime = DateTime.Now.Add(ConnectionLifeTime);
+                if (timer == null)
+                {
+                    timer = new Timer(new TimerCallback(DisposeTimedoutConnections), null, ConnectionLifeTime, new TimeSpan(-1));
+                }
+                connectionsInUse--;
+                openFreeConnections.Add(connection);
+            }
+        }
 
-	//	/// <summary>
-	//	/// Find a specific connection pool
-	//	/// </summary>
-	//	/// <param name="connectionString"></param>
-	//	/// <returns></returns>
-	//	static public DB2ConnectionPool FindConnectionPool(string connectionString)
-	//	{
-	//		return (DB2ConnectionPool)DB2Environment.Instance.connectionPools[connectionString];
-	//	}
+        public void OpenConnectionFinalized()
+        {
+            lock (openFreeConnections.SyncRoot)
+            {
+                connectionsOpen--;
+                connectionsInUse--;
+            }
+        }
 
-	//	/// <summary>
-	//	/// Get a connection pool. If it doesn't exist yet, create it
-	//	/// </summary>
-	//	/// <param name="connectionSettings"></param>
-	//	/// <returns></returns>
-	//	static public DB2ConnectionPool GetConnectionPool(DB2ConnectionSettings connectionSettings)
-	//	{
-	//		DB2Environment environment = DB2Environment.Instance;
+        /// <summary>
+        /// Find a specific connection pool
+        /// </summary>
+        /// <param name="connectionString"></param>
+        /// <returns></returns>
+        static public DB2ConnectionPool FindConnectionPool(string connectionString)
+        {
+            return (DB2ConnectionPool)DB2Environment.Instance.connectionPools[connectionString];
+        }
 
-	//		lock(environment.connectionPools.SyncRoot)
-	//		{
-	//			DB2ConnectionPool pool = (DB2ConnectionPool)environment.connectionPools[connectionSettings.ConnectionString];
-	//			if(pool == null)
-	//			{
-	//				pool = new DB2ConnectionPool(connectionSettings);
-	//				environment.connectionPools.Add(connectionSettings.ConnectionString, pool);
-	//			}
-	//			return pool;
-	//		}
-	//	}
-	//}
+        /// <summary>
+        /// Get a connection pool. If it doesn't exist yet, create it
+        /// </summary>
+        /// <param name="connectionSettings"></param>
+        /// <returns></returns>
+        static public DB2ConnectionPool GetConnectionPool(DB2ConnectionSettings connectionSettings)
+        {
+            DB2Environment environment = DB2Environment.Instance;
+
+            lock (environment.connectionPools.SyncRoot)
+            {
+                DB2ConnectionPool pool = (DB2ConnectionPool)environment.connectionPools[connectionSettings.ConnectionString];
+                if (pool == null)
+                {
+                    pool = new DB2ConnectionPool(connectionSettings);
+                    environment.connectionPools.Add(connectionSettings.ConnectionString, pool);
+                }
+                return pool;
+            }
+        }
+    }
 }

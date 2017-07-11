@@ -51,6 +51,8 @@ namespace IBM.Data.DB2
             get { return databaseVersion; }
         }
 
+        public DateTime PoolDisposalTime { get; internal set; }
+
         public string SQLGetInfo(IntPtr dbHandle, short infoType)
         {
             StringBuilder sb = new StringBuilder(DB2Constants.SQL_MAX_OPTION_STRING_LENGTH);
