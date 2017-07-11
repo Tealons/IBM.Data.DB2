@@ -1,0 +1,1 @@
+PowerShell.exe -ExecutionPolicy Bypass -File gacinstall_win7.ps1 -install IBM.Data.DB2.dll
