@@ -209,20 +209,20 @@ namespace IBM.Data.DB2
         /// </summary>
         /// <param name="connectionSettings"></param>
         /// <returns></returns>
-        static public DB2ConnectionPool GetConnectionPool(DB2ConnectionSettings connectionSettings)
-        {
-            DB2Environment environment = DB2Environment.Instance;
+        //static public DB2ConnectionPool GetConnectionPool(DB2ConnectionSettings connectionSettings)
+        //{
+        //    DB2Environment environment = DB2Environment.Instance;
 
-            lock (environment.connectionPools.SyncRoot)
-            {
-                DB2ConnectionPool pool = (DB2ConnectionPool)environment.connectionPools[connectionSettings.ConnectionString];
-                if (pool == null)
-                {
-                    pool = new DB2ConnectionPool(connectionSettings);
-                    environment.connectionPools.Add(connectionSettings.ConnectionString, pool);
-                }
-                return pool;
-            }
-        }
+        //    lock (environment.connectionPools.SyncRoot)
+        //    {
+        //        DB2ConnectionPool pool = (DB2ConnectionPool)environment.connectionPools[connectionSettings.ConnectionString];
+        //        if (pool == null)
+        //        {
+        //            pool = new DB2ConnectionPool(connectionSettings);
+        //            environment.connectionPools.Add(connectionSettings.ConnectionString, pool);
+        //        }
+        //        return pool;
+        //    }
+        //}
     }
 }

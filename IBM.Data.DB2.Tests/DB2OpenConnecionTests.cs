@@ -38,7 +38,7 @@ namespace IBM.Data.DB2.Tests
         {          
             Assert.Throws<DB2Exception>(() =>
             {                
-                DB2Connection connection = new DB2Connection(wrongconnectionstring);
+                //DB2Connection connection = new DB2Connection(wrongconnectionstring);
                 //connection.Open();                
             });
         }
