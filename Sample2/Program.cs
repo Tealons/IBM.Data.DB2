@@ -9,6 +9,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Sample2
@@ -37,41 +38,58 @@ namespace Sample2
             fileIniData.Parser.Configuration.CommentString = "#";
 
             _cliDSN = IniData["Databases"]["CLIDSN"];
-            _cli = IniData["Databases"]["CLI"];
+            _cli = IniData["Databases"]["ADONET"];
 
             TransactionTest();           
         }        
 
         public static void TransactionTest()
-        {            
+        {
             //IniData parsedData = fileIniData.ReadFile();
-            
-            DB2Connection connection = new DB2Connection(_cliDSN);
-            connection.Open();
-            DB2Command cmd = new DB2Command();
-           
-            cmd.Connection = connection;
-            cmd.CommandText = "delete from DB2INST1.ACT where actno = 10";
-
-            DB2Command cmd1 = new DB2Command();
-            cmd1.Connection = connection;
-            cmd1.CommandText = "insert into DB2INST1.ACT values(182,DCO1','DDDD')";
-
-            using (var transaction = connection.BeginTransaction())
+            try
             {
+                DB2Connection connection = new DB2Connection(_cli);
                 try
                 {
-                    //cmd.Transaction = transaction;
-                    //cmd1.Transaction = transaction;
-                    cmd.ExecuteNonQuery();
-                    cmd1.ExecuteNonQuery();
-                    transaction.Commit();
+                    connection.Open();
                 }
-                catch (Exception e)
+                catch (DB2Exception e)
                 {
-                    transaction.Rollback();
+
+                }
+
+                //Thread.Sleep(12000);
+
+                DB2Command cmd = new DB2Command();
+
+                cmd.Connection = connection;
+                cmd.CommandText = "select * from DB2INST1.ACT where actno = 10";
+
+                DB2Command cmd1 = new DB2Command();
+                cmd1.Connection = connection;
+                cmd1.CommandText = "insert into DB2INST1.ACT values(182,DCO1','DDDD')";
+
+                using (var transaction = connection.BeginTransaction())
+                {
+                    try
+                    {
+                        cmd.Transaction = transaction;
+                        //cmd1.Transaction = transaction;
+                        cmd.ExecuteNonQuery();
+                        //cmd1.ExecuteNonQuery();
+                        transaction.Commit();
+                    }
+                    catch (Exception e)
+                    {
+                        transaction.Rollback();
+                    }
                 }
             }
+            catch(Exception e)
+            {
+                Console.WriteLine(e.Message);
+            }
+            Console.ReadKey();
         }
 
         static long Orginal_IBM_Provider()

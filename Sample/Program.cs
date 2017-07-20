@@ -45,7 +45,7 @@ namespace Sample
             DB2Command cmd = new DB2Command();
 
             cmd.Connection = connection;
-            cmd.CommandText = "delete from DB2INST1.ACT where actno = 10";
+            cmd.CommandText = "select * from DB2INST1.ACT where actno = 10";
 
             DB2Command cmd1 = new DB2Command();
             cmd1.Connection = connection;
@@ -58,7 +58,7 @@ namespace Sample
                     //cmd.Transaction = transaction;
                     //cmd1.Transaction = transaction;
                     cmd.ExecuteNonQuery();
-                    cmd1.ExecuteNonQuery();
+                    //cmd1.ExecuteNonQuery();
                     transaction.Commit();
                 }
                 catch(Exception e)

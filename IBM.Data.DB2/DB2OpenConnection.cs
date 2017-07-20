@@ -31,12 +31,14 @@ namespace IBM.Data.DB2
     internal sealed class DB2OpenConnection : IDisposable
     {
         private IntPtr dbHandle = IntPtr.Zero;
-        
-        private bool disposed = false;        
+
+        private bool disposed = false;
         public bool transactionOpen;
         public bool autoCommit = true;
         private string databaseProductName;
         private string databaseVersion;
+        private DateTime poolDisposalTime; // time to live used for disposal of connections in the connection pool
+        private DB2ConnectionSettings settings;
 
         public IntPtr DBHandle
         {
@@ -51,7 +53,7 @@ namespace IBM.Data.DB2
             get { return databaseVersion; }
         }
 
-        public DateTime PoolDisposalTime { get; internal set; }
+        public DateTime PoolDisposalTime { get { return poolDisposalTime; } set { poolDisposalTime = value; } }
 
         public string SQLGetInfo(IntPtr dbHandle, short infoType)
         {
@@ -65,12 +67,18 @@ namespace IBM.Data.DB2
             return sb.ToString().Trim();
         }
 
-        public DB2OpenConnection(string connnectionString, DB2Connection connection)
-        {            
+        public DB2OpenConnection(DB2ConnectionSettings connectionSetting, DB2Connection connection)
+        {
+            this.settings = connectionSetting;
+            InternalOpen(ConvertADONET2CLIConnString(connectionSetting), connection);
+        }
+
+        private void InternalOpen(string connnectionString, DB2Connection connection)
+        {
             try
             {
-                DB2Constants.RetCode sqlRet = (DB2Constants.RetCode)DB2CLIWrapper.SQLAllocHandle(DB2Constants.SQL_HANDLE_DBC, DB2Environment.Instance.penvHandle, out dbHandle);
-                DB2ClientUtils.DB2CheckReturn(sqlRet, DB2Constants.SQL_HANDLE_DBC, DB2Environment.Instance.penvHandle, "Unable to allocate database handle in DB2Connection.", connection);
+                DB2Constants.RetCode sqlRet = (DB2Constants.RetCode)DB2CLIWrapper.SQLAllocHandle(DB2Constants.SQL_HANDLE_DBC, DB2Environment.Instance.PenvHandle, out dbHandle);
+                DB2ClientUtils.DB2CheckReturn(sqlRet, DB2Constants.SQL_HANDLE_DBC, DB2Environment.Instance.PenvHandle, "Unable to allocate database handle in DB2Connection.", connection);
 
                 StringBuilder outConnectStr = new StringBuilder(DB2Constants.SQL_MAX_OPTION_STRING_LENGTH);
                 short numOutCharsReturned;
@@ -84,6 +92,27 @@ namespace IBM.Data.DB2
 
                 databaseProductName = SQLGetInfo(dbHandle, DB2Constants.SQL_DBMS_NAME);
                 databaseVersion = SQLGetInfo(dbHandle, DB2Constants.SQL_DBMS_VER);
+
+                /* Set the attribute SQL_ATTR_XML_DECLARATION to skip the XML declaration from XML Data */
+                sqlRet = (DB2Constants.RetCode)DB2CLIWrapper.SQLSetConnectAttr(dbHandle, DB2Constants.SQL_ATTR_XML_DECLARATION, new IntPtr(DB2Constants.SQL_XML_DECLARATION_NONE), DB2Constants.SQL_NTS);
+                DB2ClientUtils.DB2CheckReturn(sqlRet, DB2Constants.SQL_HANDLE_DBC, dbHandle, "Unable to set SQL_ATTR_XML_DECLARATION", connection);
+
+
+                connection.NativeOpenPerformed = true;
+
+                if ((settings.Pool == null) || (settings.Pool.databaseProductName == null))
+                {
+                    settings.Pool.databaseProductName = databaseProductName;
+                    settings.Pool.databaseVersion = databaseVersion;                    
+                }
+                else if (settings.Pool != null)
+                {
+                    if (settings.Pool != null)
+                    {
+                        databaseProductName = settings.Pool.databaseProductName;
+                        databaseVersion = settings.Pool.databaseVersion;
+                    }
+                }
             }
             catch
             {
@@ -94,6 +123,10 @@ namespace IBM.Data.DB2
                 }
                 throw;
             }
+        }
+        public DB2OpenConnection(string connnectionString, DB2Connection connection)
+        {
+            InternalOpen(connnectionString, connection);
         }
 
         public void RollbackDeadTransaction()
@@ -125,6 +158,30 @@ namespace IBM.Data.DB2
             }
         }
 
+        private string ConvertADONET2CLIConnString(DB2ConnectionSettings connectionSetting)
+        {
+            StringBuilder connStringBuilder = new StringBuilder();
+
+            connStringBuilder.AppendFormat("Database={0};", connectionSetting.DatabaseAlias);
+
+            if (connectionSetting.Server.Contains(":"))
+            {
+                string[] serverAndPort = connectionSetting.Server.Split(':');
+                connStringBuilder.AppendFormat("Hostname={0};", serverAndPort[0]);
+                connStringBuilder.AppendFormat("Port={0};", serverAndPort[1]);
+            }
+            else
+            {
+                connStringBuilder.AppendFormat("Hostname={0};", connectionSetting.Server);
+            }
+
+            connStringBuilder.AppendFormat("UID={0};", connectionSetting.UserName);
+            connStringBuilder.AppendFormat("PWD={0};", connectionSetting.PassWord);
+            connStringBuilder.AppendFormat("ConnectTimeout={0}", connectionSetting.ConnectTimeout.Seconds);            
+
+            return connStringBuilder.ToString();
+        }
+
         #region IDisposable Members
 
         public void Dispose()
@@ -147,7 +204,12 @@ namespace IBM.Data.DB2
         }
 
         ~DB2OpenConnection()
-        {          
+        {
+            if (settings.Pool != null)
+            {
+                settings.Pool.OpenConnectionFinalized();
+            }
+
             Dispose(false);
         }
         #endregion

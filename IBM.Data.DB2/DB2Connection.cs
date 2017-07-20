@@ -32,6 +32,7 @@ namespace IBM.Data.DB2
         private IntPtr dbHandle = IntPtr.Zero;
         private bool transactionOpen;
         private ArrayList refCommands;
+        private int connectionTimeout;
         private WeakReference refTransaction;
         private bool disposed = false;
         private string connectionString;
@@ -39,6 +40,8 @@ namespace IBM.Data.DB2
         private string databaseVersion;
         private bool nativeOpenPerformed;
         private bool autoCommit = true;
+        private DB2OpenConnection openConnection;
+        private DB2ConnectionSettings connectionSettings;
 
         public override string Database
         {
@@ -47,7 +50,7 @@ namespace IBM.Data.DB2
 
         public IntPtr DBHandle
         {
-            get { return dbHandle; }
+            get { return openConnection.DBHandle; }
         }
 
         public bool TransactionOpen
@@ -72,7 +75,8 @@ namespace IBM.Data.DB2
 
         public DB2Connection(string connectionString)
         {
-            this.connectionString = connectionString;
+            //this.connectionString = connectionString;
+            SetConnectionString(connectionString);
         }
 
         #endregion
@@ -96,10 +100,13 @@ namespace IBM.Data.DB2
 
         public override int ConnectionTimeout
         {
-            get { return 10; }
+            get
+            {
+                return connectionTimeout;
+            }            
         }
 
-        unsafe public override ConnectionState State
+        public override ConnectionState State
         {
             get
             {               
@@ -107,7 +114,9 @@ namespace IBM.Data.DB2
                     return ConnectionState.Closed;
                 
                 int isDead;
-                DB2Constants.RetCode sqlRet = (DB2Constants.RetCode)DB2CLIWrapper.SQLGetConnectAttr(dbHandle, DB2Constants.SQL_ATTR_CONNECTION_DEAD, out isDead, 0, IntPtr.Zero);
+                DB2Constants.RetCode sqlRet = (DB2Constants.RetCode)DB2CLIWrapper.SQLGetConnectAttr(openConnection.DBHandle, DB2Constants.SQL_ATTR_CONNECTION_DEAD, out isDead, 0, IntPtr.Zero);
+
+                DB2ClientUtils.DB2CheckReturn(sqlRet, DB2Constants.SQL_HANDLE_DBC, openConnection.DBHandle, "Unable to connect to the database.", this);
 
                 if (((sqlRet == DB2Constants.RetCode.SQL_SUCCESS_WITH_INFO) || (sqlRet == DB2Constants.RetCode.SQL_SUCCESS)) && (isDead == DB2Constants.SQL_CD_FALSE))
                 {
@@ -191,17 +200,15 @@ namespace IBM.Data.DB2
         #region ChangeDatabase
         unsafe public override void ChangeDatabase(string newDBName)
         {
-            throw new NotImplementedException();
+            if (connectionSettings == null)
+            {
+                throw new InvalidOperationException("No connection string");
+            }
+            Close();
 
-            //if (connectionSettings == null)
-            //{
-            //    throw new InvalidOperationException("No connection string");
-            //}
-            //this.Close();
+            SetConnectionString(connectionSettings.ConnectionString.Replace(connectionSettings.DatabaseAlias, newDBName));
 
-            ////SetConnectionString(connectionSettings.ConnectionString.Replace(connectionSettings.DatabaseAlias, newDBName));
-
-            //this.Open();
+            Open();
         }
         #endregion
         
@@ -251,7 +258,12 @@ namespace IBM.Data.DB2
 
             FreeHandles();
         }
-        
+
+        private void SetConnectionString(string connectionString)
+        {            
+            this.connectionSettings = DB2ConnectionSettings.GetConnectionSettings(connectionString);
+        }
+
         public DB2Command CreateCommand()
         {
             return new DB2Command(null, this);
@@ -271,42 +283,42 @@ namespace IBM.Data.DB2
 
         #region Open
 
-        unsafe private void InternalOpen()
-        {
-            try
-            {
-                DB2Constants.RetCode sqlRet = (DB2Constants.RetCode)DB2CLIWrapper.SQLAllocHandle(DB2Constants.SQL_HANDLE_DBC, DB2Environment.Instance.penvHandle, out dbHandle);
-                DB2ClientUtils.DB2CheckReturn(sqlRet, DB2Constants.SQL_HANDLE_DBC, DB2Environment.Instance.penvHandle, "Unable to allocate database handle in DB2Connection.", this);
+        //private void InternalOpen()
+        //{
+        //    try
+        //    {
+        //        DB2Constants.RetCode sqlRet = (DB2Constants.RetCode)DB2CLIWrapper.SQLAllocHandle(DB2Constants.SQL_HANDLE_DBC, DB2Environment.Instance.PenvHandle, out dbHandle);
+        //        DB2ClientUtils.DB2CheckReturn(sqlRet, DB2Constants.SQL_HANDLE_DBC, DB2Environment.Instance.PenvHandle, "Unable to allocate database handle in DB2Connection.", this);
 
-                StringBuilder outConnectStr = new StringBuilder(DB2Constants.SQL_MAX_OPTION_STRING_LENGTH);
-                short numOutCharsReturned;
+        //        StringBuilder outConnectStr = new StringBuilder(DB2Constants.SQL_MAX_OPTION_STRING_LENGTH);
+        //        short numOutCharsReturned;
 
-                sqlRet = (DB2Constants.RetCode)DB2CLIWrapper.SQLDriverConnect(dbHandle, IntPtr.Zero,
-                    connectionString, DB2Constants.SQL_NTS,
-                    outConnectStr, DB2Constants.SQL_MAX_OPTION_STRING_LENGTH, out numOutCharsReturned,
-                    DB2Constants.SQL_DRIVER_NOPROMPT);
+        //        sqlRet = (DB2Constants.RetCode)DB2CLIWrapper.SQLDriverConnect(dbHandle, IntPtr.Zero,
+        //            connectionString, DB2Constants.SQL_NTS,
+        //            outConnectStr, DB2Constants.SQL_MAX_OPTION_STRING_LENGTH, out numOutCharsReturned,
+        //            DB2Constants.SQL_DRIVER_NOPROMPT);
 
-                DB2ClientUtils.DB2CheckReturn(sqlRet, DB2Constants.SQL_HANDLE_DBC, dbHandle, "Unable to connect to the database.", this);
+        //        DB2ClientUtils.DB2CheckReturn(sqlRet, DB2Constants.SQL_HANDLE_DBC, dbHandle, "Unable to connect to the database.", this);
 
-                databaseProductName = SQLGetInfo(dbHandle, DB2Constants.SQL_DBMS_NAME);
-                databaseVersion = SQLGetInfo(dbHandle, DB2Constants.SQL_DBMS_VER);
+        //        databaseProductName = SQLGetInfo(dbHandle, DB2Constants.SQL_DBMS_NAME);
+        //        databaseVersion = SQLGetInfo(dbHandle, DB2Constants.SQL_DBMS_VER);
 
-                /* Set the attribute SQL_ATTR_XML_DECLARATION to skip the XML declaration from XML Data */
-                sqlRet = (DB2Constants.RetCode)DB2CLIWrapper.SQLSetConnectAttr(dbHandle, DB2Constants.SQL_ATTR_XML_DECLARATION, new IntPtr(DB2Constants.SQL_XML_DECLARATION_NONE), DB2Constants.SQL_NTS);
-                DB2ClientUtils.DB2CheckReturn(sqlRet, DB2Constants.SQL_HANDLE_DBC, dbHandle, "Unable to set SQL_ATTR_XML_DECLARATION", this);
+        //        /* Set the attribute SQL_ATTR_XML_DECLARATION to skip the XML declaration from XML Data */
+        //        sqlRet = (DB2Constants.RetCode)DB2CLIWrapper.SQLSetConnectAttr(dbHandle, DB2Constants.SQL_ATTR_XML_DECLARATION, new IntPtr(DB2Constants.SQL_XML_DECLARATION_NONE), DB2Constants.SQL_NTS);
+        //        DB2ClientUtils.DB2CheckReturn(sqlRet, DB2Constants.SQL_HANDLE_DBC, dbHandle, "Unable to set SQL_ATTR_XML_DECLARATION", this);
 
-                nativeOpenPerformed = true;
-            }
-            catch
-            {
-                if (dbHandle != IntPtr.Zero)
-                {
-                    DB2CLIWrapper.SQLFreeHandle(DB2Constants.SQL_HANDLE_DBC, dbHandle);
-                    dbHandle = IntPtr.Zero;
-                }
-                throw;
-            }
-        }
+        //        nativeOpenPerformed = true;
+        //    }
+        //    catch
+        //    {
+        //        if (dbHandle != IntPtr.Zero)
+        //        {
+        //            DB2CLIWrapper.SQLFreeHandle(DB2Constants.SQL_HANDLE_DBC, dbHandle);
+        //            dbHandle = IntPtr.Zero;
+        //        }
+        //        throw;
+        //    }
+        //}
 
         public override void Open()
         {
@@ -322,7 +334,8 @@ namespace IBM.Data.DB2
 
             try
             {
-                InternalOpen();
+                //InternalOpen();
+                openConnection = connectionSettings.GetRealOpenConnection(this);
             }
             catch (DB2Exception)
             {
@@ -448,6 +461,8 @@ namespace IBM.Data.DB2
         {
            get { return State == ConnectionState.Open; }
         }
+
+        public bool NativeOpenPerformed { get { return nativeOpenPerformed; } set {  nativeOpenPerformed = value; } }
     }
 }
 

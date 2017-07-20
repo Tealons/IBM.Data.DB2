@@ -30,9 +30,9 @@ namespace IBM.Data.DB2
 		volatile static DB2Environment environment;
 		static readonly object lockobj = new object ();
 		internal Hashtable connectionPools;
-		internal IntPtr penvHandle = IntPtr.Zero;
+        private IntPtr penvHandle = IntPtr.Zero;
 
-		private DB2Environment()
+        private DB2Environment()
 		{
 			connectionPools = Hashtable.Synchronized(new Hashtable());
 
@@ -61,9 +61,11 @@ namespace IBM.Data.DB2
 				return environment;
 			}
 		}
-		#region IDisposable Members
 
-		bool disposed;
+        internal IntPtr PenvHandle { get { return penvHandle; } set { penvHandle = value; } }
+        #region IDisposable Members
+
+        bool disposed;
 		public void Dispose()
 		{
 			Dispose(true);
